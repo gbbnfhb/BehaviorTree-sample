@@ -26,5 +26,19 @@
     <None Include="scripts\move_to_enemy.lua">
       <Filter>リソース ファイル</Filter>
     </None>
+    <None Include="scripts\find_random_location.lua">
+      <Filter>リソース ファイル</Filter>
+    </None>
+    <None Include="scripts\move_to_target.lua">
+      <Filter>リソース ファイル</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="bt.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="Blackboard.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

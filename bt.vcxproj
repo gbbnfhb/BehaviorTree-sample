@@ -130,8 +130,14 @@
     <ClCompile Include="bt.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="scripts\find_random_location.lua" />
     <None Include="scripts\is_enemy_close.lua" />
     <None Include="scripts\move_to_enemy.lua" />
+    <None Include="scripts\move_to_target.lua" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Blackboard.h" />
+    <ClInclude Include="bt.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

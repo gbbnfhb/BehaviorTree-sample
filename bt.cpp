@@ -11,139 +11,34 @@
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 
-// --- 前方宣言 ---
-class Agent;
+#include "bt.h"
 
-// --- ビヘイビアツリー基本コンポーネント ---
-enum class NodeStatus { SUCCESS, FAILURE, RUNNING };
+void DrawBehaviorTree(const Node* node, int x, int& y, int indent_level) {
+	if (!node) return;
 
-std::string StatusToString(NodeStatus status) {
-	switch (status) {
-	case NodeStatus::SUCCESS: return "SUCCESS";
-	case NodeStatus::FAILURE: return "FAILURE";
-	case NodeStatus::RUNNING: return "RUNNING";
+	// インデントをつけて表示
+	int indent = indent_level * 20;
+
+	// ノードのステータスに応じて色分けする
+	Color textColor = WHITE;
+	switch (node->getStatus()) { // getStatus()も必要
+	case NodeStatus::SUCCESS: textColor = GREEN; break;
+	case NodeStatus::FAILURE: textColor = RED; break;
+	case NodeStatus::RUNNING: textColor = BLUE; break;
+	default: textColor = GRAY; break;
 	}
-	return "UNKNOWN";
+
+	// ノードの名前とステータスを描画
+	DrawText(node->getDebugText().c_str(), x + indent, y, 10, textColor);
+
+	// y座標を次の行へ
+	y += 15;
+
+	// 子ノードを再帰的に描画
+	for (const auto& child : node->getChildren()) {
+		DrawBehaviorTree(child.get(), x, y, indent_level + 1);
+	}
 }
-
-class Node {
-protected:
-	NodeStatus status = NodeStatus::FAILURE;
-public:
-	virtual ~Node() = default;
-	virtual NodeStatus tick(Agent& agent, const Agent& opponent) = 0;
-	virtual std::string getStatusText() const = 0;
-	virtual void getTreeViewText(std::string& text, const std::string& indent) const {
-		text += indent + getStatusText() + "\n";
-	}
-};
-
-class CompositeNode : public Node {
-protected:
-	std::vector<std::shared_ptr<Node>> children;
-public:
-	CompositeNode(std::vector<std::shared_ptr<Node>> children_nodes) : children(std::move(children_nodes)) {}
-	void getTreeViewText(std::string& text, const std::string& indent) const override {
-		text += indent + getStatusText() + "\n";
-		for (const auto& child : children) {
-			child->getTreeViewText(text, indent + "  ");
-		}
-	}
-};
-
-class Sequence : public CompositeNode {
-public:
-	using CompositeNode::CompositeNode;
-	NodeStatus tick(Agent& agent, const Agent& opponent) override {
-		for (const auto& child : children) {
-			NodeStatus child_status = child->tick(agent, opponent);
-			if (child_status != NodeStatus::SUCCESS) {
-				status = child_status;
-				return status;
-			}
-		}
-		status = NodeStatus::SUCCESS;
-		return status;
-	}
-	std::string getStatusText() const override { return "Sequence: " + StatusToString(status); }
-};
-
-// --- Agentクラス ---
-class Agent {
-public:
-	Vector2 position;
-	Color color;
-	float speed = 1.0f;
-	std::shared_ptr<Node> behavior_tree = nullptr;
-
-	Agent(float x, float y, Color c, std::shared_ptr<Node> bt = nullptr)
-		: position{x, y}, color(c), behavior_tree(std::move(bt)) {}
-
-	void update(const Agent& opponent) {
-		if (behavior_tree) {
-			behavior_tree->tick(*this, opponent);
-		}
-	}
-
-	void draw() const {
-		DrawCircleV(position, 15.0f, color);
-	}
-};
-
-// --- Lua連携ノード ---
-class LuaNode : public Node {
-private:
-	sol::state_view lua;
-	sol::table self; // Lua側のノードインスタンス
-	std::string node_name;
-
-public:
-	LuaNode(sol::state_view lua_vm, const std::string& script_path, const std::string& class_name, sol::variadic_args args)
-		: lua(lua_vm), node_name(class_name)
-	{
-		try {
-			lua.script_file(script_path);
-			sol::table node_class = lua[class_name];
-			// :new(self, ...)の形で呼び出す
-			self = node_class["new"](node_class, args);
-		} catch (const sol::error& e) {
-			std::cerr << "Lua Error in LuaNode constructor: " << e.what() << std::endl;
-			self = sol::nil;
-		}
-	}
-
-	NodeStatus tick(Agent& agent, const Agent& opponent) override {
-		if (!self.valid()) return NodeStatus::FAILURE;
-		try {
-			sol::object result = self["tick"](self, std::ref(agent), std::ref(opponent));
-			if (result.is<std::string>()) {
-				std::string status_str = result.as<std::string>();
-				if (status_str == "SUCCESS") { status = NodeStatus::SUCCESS; return status; }
-				if (status_str == "RUNNING") { status = NodeStatus::RUNNING; return status; }
-			}
-		} catch (const sol::error& e) {
-			std::cerr << "Lua Error in tick: " << e.what() << std::endl;
-		}
-		status = NodeStatus::FAILURE;
-		return status;
-	}
-
-	// getStatusTextとgetTreeViewTextを実装する
-	std::string getStatusText() const override {
-		if (!self.valid()) return node_name + ": [INVALID]";
-		try {
-			// Lua側のgetStatusTextを呼び出す
-			sol::function get_status = self["getStatusText"];
-			if (get_status.valid()) {
-				return get_status(self).get<std::string>();
-			}
-		} catch (const sol::error& e) {
-			std::cerr << "Lua Error in getStatusText: " << e.what() << std::endl;
-		}
-		return node_name + ": " + StatusToString(status);
-	}
-};
-
 
 // --- メインプログラム ---
 int main() {
@@ -165,10 +60,18 @@ int main() {
 		"y", &Vector2::y
 	);
 
+	lua.new_usertype<Blackboard>("Blackboard",
+		"set_vector2", &Blackboard::set<Vector2>, // Vector2専用のsetを登録
+		"get_vector2", &Blackboard::get<Vector2>, // Vector2専用のgetを登録
+		"has", &Blackboard::has,
+		"remove", &Blackboard::remove
+	);
+
 	// AgentクラスをLuaに公開
 	lua.new_usertype<Agent>("Agent",
 		sol::no_constructor, // C++側で生成するのでLuaでのコンストラクタは不要
 		"position", &Agent::position,
+		"blackboard", &Agent::blackboard,
 		"speed", &Agent::speed,
 		// LuaからC++のAgentを移動させるためのメソッド
 		"move", [](Agent& agent, float dx, float dy) {
@@ -177,15 +80,49 @@ int main() {
 	}
 	);
 
+
+
 	// --- アバターとビヘイビアツリーの作成 ---
 	Agent player(100, SCREEN_HEIGHT / 2.0f, MAROON);
 
-	auto ai_tree = std::make_shared<Sequence>(std::vector<std::shared_ptr<Node>>{
-		std::make_shared<LuaNode>(lua, "scripts/is_enemy_close.lua", "IsEnemyClose", sol::variadic_args(lua, 200.0f)),
-			std::make_shared<LuaNode>(lua, "scripts/move_to_enemy.lua", "MoveToEnemy", sol::variadic_args(lua))
+	// 【優先度:高】の行動ブランチ（シーケンス）を作成
+	// これは「もし敵が近ければ、敵に向かって移動する」という一連の行動
+	auto chase_sequence = std::make_shared<Sequence>(std::vector<std::shared_ptr<Node>>{
+		// 条件：敵が200ピクセル以内にいるか？
+		std::make_shared<LuaNode>(lua, "scripts/is_enemy_close.lua", "IsEnemyClose", 
+			200.0f),
+			// 行動：敵に向かって移動する
+			std::make_shared<LuaNode>(lua, "scripts/move_to_enemy.lua", "MoveToEnemy")
 	});
 
-	Agent ai(SCREEN_WIDTH - 100 - GUI_WIDTH, SCREEN_HEIGHT / 2.0f, DARKBLUE, ai_tree);
+	//行動範囲
+	sol::table bounds = lua.create_table_with(
+		"min_x", 0.0f,
+		"min_y", 0.0f,
+		"max_x", (float)SCREEN_WIDTH - GUI_WIDTH,
+		"max_y", (float)SCREEN_HEIGHT
+	);
+
+	// ランダム徘徊シーケンスを作成
+	auto wander_sequence = std::make_shared<Sequence>(std::vector<std::shared_ptr<Node>>{
+		// 1. 行き先を探すノード
+		std::make_shared<LuaNode>(lua, 
+			"scripts/find_random_location.lua",	"FindRandomLocation", 
+			300.0f,
+			bounds), // 300.0fは探索半径
+		// 2. そこへ移動するノード
+		std::make_shared<LuaNode>(lua, "scripts/move_to_target.lua", "MoveToTarget")
+	});
+
+	// セレクターを使って、2つの行動ブランチをまとめる
+	// これがビヘイビアツリー全体のルートノードになる
+	auto root_selector = std::make_shared<Selector>(std::vector<std::shared_ptr<Node>>{
+		chase_sequence, // 最初にこちらを試す
+			wander_sequence   // 上が失敗したら、こちらを実行する
+	});
+
+
+	Agent ai(SCREEN_WIDTH - 100 - GUI_WIDTH, SCREEN_HEIGHT / 2.0f, DARKBLUE, root_selector);
 
 	std::string tree_view_text;
 
@@ -198,7 +135,7 @@ int main() {
 		ai.update(player);
 
 		tree_view_text.clear();
-		ai_tree->getTreeViewText(tree_view_text, "");
+		root_selector->getTreeViewText(tree_view_text, "");
 
 		BeginDrawing();
 		ClearBackground(RAYWHITE);
@@ -208,8 +145,13 @@ int main() {
 		DrawCircleLines(static_cast<int>(ai.position.x), static_cast<int>(ai.position.y), 200.0f, Fade(SKYBLUE, 0.5f));
 
 		GuiGroupBox({(float)SCREEN_WIDTH - GUI_WIDTH + 5, 10, (float)GUI_WIDTH - 15, (float)SCREEN_HEIGHT - 20}, "AI Behavior Tree Status");
-		GuiLabel({(float)SCREEN_WIDTH - GUI_WIDTH + 15, 40, (float)GUI_WIDTH - 30, (float)SCREEN_HEIGHT - 50}, tree_view_text.c_str());
+//		GuiLabel({(float)SCREEN_WIDTH - GUI_WIDTH + 15, 40, (float)GUI_WIDTH - 30, (float)SCREEN_HEIGHT - 50}, tree_view_text.c_str());
+		// GUI領域の背景を描画
+		DrawRectangle(SCREEN_WIDTH - GUI_WIDTH, 0, GUI_WIDTH, SCREEN_HEIGHT, Fade(LIGHTGRAY, 0.5f));
 
+		// ビヘイビアツリーのデバッグ表示
+		int start_y = 50;
+		DrawBehaviorTree(ai.behavior_tree.get(), SCREEN_WIDTH - GUI_WIDTH + 10, start_y, 0);
 		EndDrawing();
 	}
 
