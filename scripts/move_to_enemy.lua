@@ -11,6 +11,7 @@ function MoveToEnemy:new()
 end
 
 function MoveToEnemy:tick(agent, opponent)
+--print "MoveToEnemy:tick"
   local p1 = agent.position
   local p2 = opponent.position
   

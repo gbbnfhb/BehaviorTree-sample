@@ -12,6 +12,7 @@ function IsEnemyClose:new(threshold)
 end
 
 function IsEnemyClose:tick(agent, opponent)
+--print "IsEnemyClose:tick"
   local p1 = agent.position
   local p2 = opponent.position
   
