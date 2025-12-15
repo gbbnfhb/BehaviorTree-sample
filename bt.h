@@ -70,6 +70,10 @@ public:
 		}
 	}
 
+	virtual std::string getDebugText() const {
+		return "Composite: " + StatusToString(status);
+	}
+
 	// getChildrenをオーバーライドして、実際の子ノードリストを返す
 	const std::vector<std::shared_ptr<Node>>& getChildren() const override {
 		return children;
@@ -89,6 +93,10 @@ public:
 		}
 		status = NodeStatus::SUCCESS;
 		return status;
+	}
+
+	virtual std::string getDebugText() const {
+		return "Sequence: " + StatusToString(status);
 	}
 
 	std::string getStatusText() const override { return "Sequence: " + StatusToString(status); }
@@ -111,6 +119,10 @@ public:
 		// すべての子がFAILUREを返した場合のみ、FAILUREを返す
 		status = NodeStatus::FAILURE;
 		return status;
+	}
+
+	virtual std::string getDebugText() const {
+		return "Selector: " + StatusToString(status);
 	}
 
 	std::string getStatusText() const override { return "Selector: " + StatusToString(status); }
